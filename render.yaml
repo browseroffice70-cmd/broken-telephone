@@ -1,0 +1,18 @@
+# Render Blueprint: one web service runs the Node game server, which also serves the
+# pre-built WebGL client from WebBuild/ (same origin -> wss:// works automatically).
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repo.
+services:
+  - type: web
+    name: broken-telephone
+    runtime: node
+    plan: free                 # free tier sleeps after ~15 min idle; use "starter" to stay awake
+    region: singapore          # closest Render region to India
+    buildCommand: cd Server && npm ci --omit=dev
+    startCommand: cd Server && node server.js
+    healthCheckPath: /health
+    autoDeploy: true           # every push to main redeploys (ends games in progress)
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: MIN_PLAYERS
+        value: "4"
