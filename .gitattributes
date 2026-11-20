@@ -1,0 +1,16 @@
+# Unity YAML assets: normalize line endings, diff as text
+*.unity text eol=lf
+*.prefab text eol=lf
+*.asset text eol=lf
+*.meta text eol=lf
+*.mat text eol=lf
+
+# Pre-compressed WebGL build + fonts: never touch line endings
+*.br binary
+*.gz binary
+*.wasm binary
+*.data binary
+*.woff2 binary
+*.ttf binary
+*.png binary
+*.ico binary

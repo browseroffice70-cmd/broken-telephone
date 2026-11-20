@@ -1,0 +1,44 @@
+# --- Unity (generated, per-machine) ---
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+sysinfo.txt
+crashlytics-build.properties
+
+# IDE / solution files (Unity regenerates these)
+.vs/
+.vscode/
+.idea/
+*.csproj
+*.sln
+*.slnx
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# --- Node server ---
+Server/node_modules/
+npm-debug.log*
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# WebBuild/ IS committed on purpose: hosts like Render can't run Unity, so the
+# server serves this pre-built (Brotli-compressed) WebGL build directly.

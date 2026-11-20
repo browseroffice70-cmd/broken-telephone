@@ -1,0 +1,17 @@
+{
+  "name": "broken-telephone-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Authoritative room/turn server for the Broken Telephone WebGL game. Also serves the WebGL build.",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/smoke.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
