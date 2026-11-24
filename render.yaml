@@ -14,5 +14,5 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      - key: MIN_PLAYERS
-        value: "4"
+      - key: MIN_PLAYERS   # 2 for testing; raise to 4 for real games
+        value: "2"
