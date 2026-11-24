@@ -1,8 +1,8 @@
 'use strict';
-// End-to-end smoke test: 2 humans + 8 bots play a full chain, then a silent player triggers a restart.
+// End-to-end smoke test: 3 players play a full chain, then a silent player triggers a restart.
 Object.assign(process.env, {
   PORT: '0', RECORD_MS: '200', UPLOAD_GRACE_MS: '1500', NOTICE_MS: '200',
-  BOT_BASE_MS: '20', BOT_PER_WORD_MS: '1', READ_MS: '3000', LISTEN_MS: '3000',
+  MIN_PLAYERS: '3', READ_MS: '3000', LISTEN_MS: '3000',
 });
 const assert = require('assert');
 const WebSocket = require('ws');
@@ -48,31 +48,27 @@ server.listen(0, async () => {
     assert.strictEqual(room.lang, 'kn', 'room language from create');
     b.send({ t: 'join', code: room.code });
     await b.wait(m => m.t === 'room' && m.players.length === 2);
-    // Bots are off by default: 2 humans < 10 must be refused.
+    // 2 players < MIN_PLAYERS (3) must be refused.
     a.send({ t: 'start' });
     const refused = await a.wait(m => m.t === 'error');
     assert.strictEqual(refused.msg, 'Not enough players');
-    b.send({ t: 'setBots', on: true });   // non-host: ignored
-    a.send({ t: 'setBots', on: true });   // host: allowed
-    await a.wait(m => m.t === 'room' && m.bots === true);
-    console.log('Bots toggle OK (off by default, host-only)');
+    const c = await client('device-cccccccc', 'Carol', port);
+    c.send({ t: 'join', code: room.code });
+    await a.wait(m => m.t === 'room' && m.players.length === 3);
+    console.log('Min-player check OK');
     a.send({ t: 'start' });
 
     const res = await a.wait(m => m.t === 'results');
-    assert.strictEqual(res.entries.length, 4, 'lineup should be filled to MIN_PLAYERS (4)');
-    assert.strictEqual(res.entries.filter(e => e.bot).length, 2);
-    assert.ok(res.ranking.filter(r => !r.bot).every(r => r.rank > 0));
+    assert.strictEqual(res.entries.length, 3, 'every player takes one turn');
+    assert.deepStrictEqual(res.ranking.map(r => r.rank), [1, 2, 3]);
     assert.ok(res.entries.every(e => Number.isInteger(e.score) && typeof e.hasAudio === 'boolean'), 'every entry has a score + hasAudio');
-    const badBots = res.entries.filter(e => e.bot && /[ಀ-೿]/.test(e.heard) && !/[ಀ-೿]/.test(e.said));
-    if (badBots.length) console.log('DEBUG bad bot entries:', JSON.stringify(badBots, null, 1));
     assert.ok(/[ಀ-೿]/.test(res.original), 'Kannada room must get a Kannada headline');
-    assert.ok(res.entries.filter(e => e.bot && /[ಀ-೿]/.test(e.heard)).every(e => /[ಀ-೿]/.test(e.said)), 'bots mishear in Kannada');
     console.log('Full chain OK. Original:', JSON.stringify(res.original));
     for (const e of res.entries) console.log(`  ${e.index + 1}. ${e.name.padEnd(14)} ${String(e.score).padStart(3)}  ${e.said}`);
     console.log('  overall fidelity:', res.overall);
 
     // Audio on demand for the results screen.
-    const humanEntry = res.entries.find(e => !e.bot);
+    const humanEntry = res.entries[0];
     const before = a.audioFrames;
     a.ws.removeAllListeners('message');
     const gotBin = new Promise(r => a.ws.once('message', (d, bin) => r(bin && d[0] === 2)));

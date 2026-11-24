@@ -14,7 +14,7 @@ var BrokenTelephonePlugin = {
     vadBuf: null,
     player: null,        // one reusable <audio> element (unlocked once for iOS/Safari)
     turnUrl: null,       // blob URL of the clip the local player must listen to (playable once)
-    turnTts: null,       // or the bot's text, spoken with speechSynthesis
+    turnTts: null,       // or a transcript, spoken with speechSynthesis (when no recording was uploaded)
     turnLang: 'en-IN',
     resultUrls: {},
     rec: null,           // active recording session

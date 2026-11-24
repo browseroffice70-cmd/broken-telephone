@@ -12,6 +12,8 @@ namespace BrokenTelephone.EditorTools
     public static class BrokenTelephoneBuild
     {
         const string OutputDir = "WebBuild";
+        // Assets/WebGLTemplates/FullWindow: canvas fills the whole browser window and follows resizes.
+        const string Template = "PROJECT:FullWindow";
 
         [MenuItem("Broken Telephone/Apply Web Release Settings")]
         public static void ApplyWebReleaseSettings()
@@ -23,6 +25,7 @@ namespace BrokenTelephone.EditorTools
             PlayerSettings.stripEngineCode = true;
             PlayerSettings.stripUnusedMeshComponents = true;
             PlayerSettings.runInBackground = true;
+            PlayerSettings.WebGL.template = Template;
             PlayerSettings.WebGL.dataCaching = true;
             // server.js sends Content-Encoding: br, so no JS decompressor is needed (saves ~150 KB + startup time).
             PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Brotli;
@@ -53,6 +56,7 @@ namespace BrokenTelephone.EditorTools
                 + $"  dataCaching = {PlayerSettings.WebGL.dataCaching}\n"
                 + $"  memoryGrowthMode = {PlayerSettings.WebGL.memoryGrowthMode}, initial = {PlayerSettings.WebGL.initialMemorySize} MB\n"
                 + $"  codeOptimization = {UnityEditor.WebGL.UserBuildSettings.codeOptimization} (per-machine, stored in Library/)\n"
+                + $"  template = {PlayerSettings.WebGL.template}\n"
                 + $"  quality = {QualitySettings.names[QualitySettings.GetQualityLevel()]}");
         }
 
@@ -79,6 +83,7 @@ namespace BrokenTelephone.EditorTools
         {
             var output = Path.GetFullPath(Path.Combine(Application.dataPath, "..", OutputDir));
             UnityEditor.WebGL.UserBuildSettings.codeOptimization = UnityEditor.WebGL.WasmCodeOptimization.BuildTimes;
+            PlayerSettings.WebGL.template = Template;
             var report = BuildPipeline.BuildPlayer(new[] { "Assets/Scenes/SampleScene.unity" }, output, BuildTarget.WebGL, BuildOptions.Development);
             Debug.Log($"[BT] Dev WebGL build {report.summary.result} -> {output}");
         }

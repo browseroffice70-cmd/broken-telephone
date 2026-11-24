@@ -129,7 +129,6 @@ function handle(conn, msg) {
     case 'leave': if (conn.room) conn.room.leave(conn, true); break;
     case 'start': if (conn.room) conn.room.start(conn); break;
     case 'lobby': if (conn.room) conn.room.backToLobby(conn); break;
-    case 'setBots': if (conn.room) conn.room.setBots(conn, !!msg.on); break;
     case 'setLang': if (conn.room) conn.room.setLang(conn, String(msg.lang || '')); break;
     case 'played': if (conn.room) conn.room.onPlayed(conn); break;
     case 'begin': if (conn.room) conn.room.onBegin(conn); break;

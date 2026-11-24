@@ -177,7 +177,7 @@ namespace BrokenTelephone
 
                 c.num.Text = current >= 0 ? UIKit.Num(i + 1) : "";
                 c.name.Text = p.name;
-                c.tag.Text = !p.online ? Loc.T("tag_offline") : me ? Loc.T("tag_you") : p.bot ? Loc.T("tag_bot")
+                c.tag.Text = !p.online ? Loc.T("tag_offline") : me ? Loc.T("tag_you")
                     : p.id == hostId ? Loc.T("tag_host") : done ? Loc.T("tag_done") : "";
                 c.border.color = me ? Palette.Blue : isCurrent ? Palette.Accent : Palette.Panel;
                 c.bg.color = isCurrent ? Palette.Accent : done ? Palette.Panel : Palette.Panel2;
@@ -257,6 +257,17 @@ namespace BrokenTelephone
             Screen = new UIScreen(root, "Home", 22);
             var col = Screen.Column;
             UIKit.Layout(UIKit.Rect(col, "Spacer"), -1, -1, 1);
+            // Game icon (Assets/Resources/AppIcon.png): square, centered, shrinks on short landscape screens.
+            var iconBox = UIKit.Rect(col, "IconBox");
+            UIKit.Layout(iconBox, 200, -1, -1, -1, 80);
+            var icon = UIKit.Rect(iconBox, "Icon").gameObject.AddComponent<RawImage>();
+            icon.texture = Resources.Load<Texture2D>("AppIcon");
+            icon.raycastTarget = false;
+            icon.rectTransform.anchorMin = Vector2.zero;
+            icon.rectTransform.anchorMax = Vector2.one;
+            var fit = icon.gameObject.AddComponent<AspectRatioFitter>();
+            fit.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
+            fit.aspectRatio = 1f;
             UIKit.LabelKey(col, "Title", "title", 80, Palette.Accent, TextAnchor.MiddleCenter, FontStyle.Bold);
             UIKit.Layout(UIKit.LabelKey(col, "Sub", "subtitle", 30, Palette.Muted), -1, -1, -1, -1, 60);
 
@@ -290,10 +301,9 @@ namespace BrokenTelephone
         public readonly UIScreen Screen;
         public readonly UText Code, Info, Hint, Headlines;
         public readonly LineupView Players;
-        public readonly Button Start, Copy, Leave, Bots;
-        public readonly UText BotsLabel;
+        public readonly Button Start, Copy, Leave;
 
-        public LobbyView(Transform root, Action onStart, Action onCopy, Action onLeave, Action onBots)
+        public LobbyView(Transform root, Action onStart, Action onCopy, Action onLeave)
         {
             Screen = new UIScreen(root, "Lobby", 16);
             var col = Screen.Column;
@@ -309,9 +319,6 @@ namespace BrokenTelephone
             Players = new LineupView(col);
             Info = UIKit.Label(col, "Info", "", 28, Palette.Muted);
             UIKit.Layout(Info, -1, -1, -1, -1, 70);
-            // Optional bots: host-only toggle, only shown before the game starts.
-            Bots = UIKit.Button(col, "Bots", "", Palette.Panel2, Palette.Text, 30, () => onBots(), out BotsLabel);
-            UIKit.Layout(Bots, 84);
             UIKit.Layout(UIKit.Rect(col, "Spacer"), -1, -1, 1);
             Hint = UIKit.Label(col, "Hint", "", 28, Palette.Muted);
             UIKit.Layout(Hint, -1, -1, -1, -1, 50);
@@ -394,7 +401,6 @@ namespace BrokenTelephone
             public UText num, name, said, score, playLabel;
             public Button play;
             public int index;
-            public bool bot;
         }
 
         sealed class RankRow { public GameObject go; public Image bg; public UText rank, name, score; }
@@ -526,15 +532,14 @@ namespace BrokenTelephone
                 var row = GetRow(i);
                 row.go.SetActive(true);
                 row.index = e.index;
-                row.bot = e.bot;
                 row.num.Text = UIKit.Num(i + 1);
-                row.name.Text = e.bot ? e.name + "  ·  " + Loc.T("tag_bot") : e.playerId == myId ? e.name + "  ·  " + Loc.T("tag_you") : e.name;
+                row.name.Text = e.playerId == myId ? e.name + "  ·  " + Loc.T("tag_you") : e.name;
                 row.name.Color = e.playerId == myId ? Palette.Blue : Palette.Muted;
                 row.said.Text = Said(e.said);
                 row.score.Text = ScoreText(e.score);
                 row.score.Color = ScoreColor(e.score);
                 row.bg.color = i == n - 1 ? Palette.WarnTint : Palette.Panel; // last link = final version
-                row.playLabel.Text = Loc.T(e.bot ? "voice" : "play");
+                row.playLabel.Text = Loc.T("play");
                 row.play.interactable = e.hasAudio || !string.IsNullOrEmpty(e.said);
             }
             for (int i = n; i < rows.Count; i++) rows[i].go.SetActive(false);
@@ -545,10 +550,10 @@ namespace BrokenTelephone
                 var k = r.ranking[i];
                 var row = GetRank(i);
                 row.go.SetActive(true);
-                row.rank.Text = k.rank > 0 ? "#" + k.rank : Loc.T("tag_bot");
+                row.rank.Text = "#" + k.rank;
                 row.rank.Color = k.rank == 1 ? Palette.Accent : k.rank == 2 ? Palette.Text : k.rank == 3 ? Palette.Warn : Palette.Muted;
                 row.name.Text = k.name;
-                row.name.Color = k.bot ? Palette.Muted : k.playerId == myId ? Palette.Blue : Palette.Text;
+                row.name.Color = k.playerId == myId ? Palette.Blue : Palette.Text;
                 row.score.Text = ScoreText(k.score);
                 row.score.Color = ScoreColor(k.score);
                 row.bg.color = k.rank == 1 ? Palette.GoodTint : Palette.Panel;
@@ -563,7 +568,7 @@ namespace BrokenTelephone
         {
             for (int i = 0; i < rows.Count; i++)
                 if (rows[i].go.activeSelf && rows[i].index == index)
-                    rows[i].playLabel.Text = playing ? "…" : Loc.T(rows[i].bot ? "voice" : "play");
+                    rows[i].playLabel.Text = playing ? "…" : Loc.T("play");
         }
     }
 }

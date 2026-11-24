@@ -137,7 +137,7 @@ namespace BrokenTelephone
             var t = root.transform;
             home = new HomeView(t, OnCreateClicked, OnJoinClicked);
             home.Name.onEndEdit.AddListener(OnNameEdited);
-            lobby = new LobbyView(t, () => Send("{\"t\":\"start\"}"), OnCopyClicked, LeaveRoom, OnBotsClicked);
+            lobby = new LobbyView(t, () => Send("{\"t\":\"start\"}"), OnCopyClicked, LeaveRoom);
             game = new GameView(t, OnPrimaryClicked, LeaveRoom);
             resultsView = new ResultsView(t, OnPlayResult, () => Send("{\"t\":\"lobby\"}"), LeaveRoom);
             picker = new LanguagePicker(t, OnLanguagePicked);
@@ -362,7 +362,6 @@ namespace BrokenTelephone
                     game.Timer.Run(msg.remainingMs, Palette.Blue); break;
                 case "record":
                     game.Timer.Run(msg.remainingMs, Palette.Bad); break;
-                case "bot":
                 case "paused":
                     game.Timer.Run(msg.remainingMs, Palette.Muted); break;
                 default:
@@ -392,16 +391,10 @@ namespace BrokenTelephone
             lobby.Players.Set(room.players, -1, deviceId, room.hostId);
             int humans = 0;
             foreach (var p in room.players) if (p.online) humans++;
-            int bots = Mathf.Max(0, room.minPlayers - humans);
-            bool canStart = room.bots || humans >= room.minPlayers;
-            lobby.Info.Text = humans >= room.minPlayers ? Loc.F("info_ready", humans)
-                : room.bots ? Loc.F("info_bots", humans, bots, room.minPlayers)
+            bool canStart = humans >= room.minPlayers;
+            lobby.Info.Text = canStart ? Loc.F("info_ready", humans)
                 : Loc.F("info_need", humans, room.minPlayers, room.minPlayers - humans);
             lobby.Info.Color = canStart ? Palette.Muted : Palette.Warn;
-            lobby.BotsLabel.Text = Loc.T(room.bots ? "bots_on" : "bots_off");
-            lobby.BotsLabel.Color = room.bots ? Palette.OnAccent : Palette.Text;
-            ((Image)lobby.Bots.targetGraphic).color = room.bots ? Palette.Good : Palette.Panel2;
-            lobby.Bots.interactable = IsHost; // everyone sees the setting, only the host can flip it
             lobby.Start.interactable = canStart;
             var region = Loc.Regions[(int)Loc.FromCode(RoomLang)];
             lobby.Headlines.Text = Loc.F(IsHost ? "headlines_host" : "headlines", region);
@@ -466,9 +459,6 @@ namespace BrokenTelephone
                             sent ? "" : Loc.T("im_done"), recording, micOk ? "" : Loc.T("mic_silent"));
                     else SetCard(Loc.F("x_speaking", who), "…", "", false, spectate);
                     break;
-                case "bot":
-                    SetCard(Loc.F("x_whispering", who), Loc.T("bot_player"), "", false, spectate);
-                    break;
                 case "paused":
                     SetCard(Loc.T("hold_on"), "", "", false, "");
                     break;
@@ -516,12 +506,6 @@ namespace BrokenTelephone
             myName = value;
             PlayerPrefs.SetString(PrefName, myName);
             Send(JsonUtility.ToJson(new RenameOut { name = myName }));
-        }
-
-        void OnBotsClicked()
-        {
-            if (!IsHost || room.phase == "game") return;
-            Send(room.bots ? "{\"t\":\"setBots\",\"on\":false}" : "{\"t\":\"setBots\",\"on\":true}");
         }
 
         void OnCopyClicked()

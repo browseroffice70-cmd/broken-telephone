@@ -15,7 +15,6 @@ namespace BrokenTelephone
     {
         public string id;
         public string name;
-        public bool bot;
         public bool online;
     }
 
@@ -27,7 +26,6 @@ namespace BrokenTelephone
         public string phase;          // lobby | game | results
         public string lang;           // room language: en | hi | kn | ml (headline region + speech)
         public int minPlayers;
-        public bool bots;             // host toggle: fill empty seats with bots
         public int recordMs;
         public PlayerInfo[] players;
         public PlayerInfo[] lineup;
@@ -36,7 +34,7 @@ namespace BrokenTelephone
     [Serializable]
     public class TurnMsg
     {
-        public string phase;          // loading | read | listen | record | bot | paused
+        public string phase;          // loading | read | listen | record | paused
         public int index;
         public int total;
         public string playerId;
@@ -55,7 +53,6 @@ namespace BrokenTelephone
         public int index;
         public string playerId;
         public string name;
-        public bool bot;
         public string heard;
         public string said;
         public int score;             // 0..100, -1 = not scorable (no transcript)
@@ -67,9 +64,8 @@ namespace BrokenTelephone
     {
         public string playerId;
         public string name;
-        public bool bot;
         public int score;
-        public int rank;              // 0 for bots
+        public int rank;
     }
 
     [Serializable]

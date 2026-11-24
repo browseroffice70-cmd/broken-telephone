@@ -1,7 +1,6 @@
 'use strict';
 
 const C = require('./config');
-const { makeBot, mutate } = require('./bots');
 const { similarity } = require('./scoring');
 const { getSentence, LANGS } = require('./news');
 
@@ -31,20 +30,18 @@ function audioFrame(kind, index, audio) {
  * the room owns turn order, timers, sentence secrecy, scoring and restarts.
  *
  * phase:     'lobby' | 'game' | 'results'
- * turnPhase: 'loading' | 'read' | 'listen' | 'record' | 'bot' | 'paused'
+ * turnPhase: 'loading' | 'read' | 'listen' | 'record' | 'paused'
  */
 class Room {
   constructor(code, onEmpty, lang) {
     this.code = code;
     this.lang = LANGS.includes(lang) ? lang : 'en'; // headline region + speech language for the whole room
-    this.useBots = false; // host toggle in the lobby: fill empty seats with bots up to MIN_PLAYERS
     this.onEmpty = onEmpty;
-    this.humans = new Map();   // id -> { id, name, bot:false, conn, online, strikes }
-    this.bots = new Map();     // id -> bot
+    this.humans = new Map();   // id -> { id, name, conn, online }
     this.hostId = null;
     this.phase = 'lobby';
     this.lineup = [];          // player ids in turn order
-    this.chain = [];           // { playerId, name, bot, heard, said, audio }
+    this.chain = [];           // { playerId, name, heard, said, audio }
     this.index = 0;
     this.sentence = '';
     this.round = 0;
@@ -59,7 +56,7 @@ class Room {
 
   // ---------- membership ----------
 
-  get(id) { return this.humans.get(id) || this.bots.get(id); }
+  get(id) { return this.humans.get(id); }
 
   onlineHumans() {
     const out = [];
@@ -77,7 +74,7 @@ class Room {
       h.name = conn.name;
     } else {
       if (this.humans.size >= C.MAX_PLAYERS) return 'Room is full';
-      h = { id: conn.deviceId, name: conn.name, bot: false, conn, online: true, strikes: 0 };
+      h = { id: conn.deviceId, name: conn.name, conn, online: true };
       this.humans.set(h.id, h);
     }
     conn.room = this;
@@ -136,7 +133,7 @@ class Room {
   }
 
   roomMessage() {
-    const pub = p => ({ id: p.id, name: p.name, bot: !!p.bot, online: p.bot ? true : p.online });
+    const pub = p => ({ id: p.id, name: p.name, online: p.online });
     return {
       t: 'room',
       code: this.code,
@@ -144,10 +141,9 @@ class Room {
       phase: this.phase,
       lang: this.lang,
       minPlayers: C.MIN_PLAYERS,
-      bots: this.useBots,
       recordMs: C.RECORD_MS,
       players: [...this.humans.values()].map(pub),
-      lineup: this.lineup.map(id => pub(this.get(id) || { id, name: '?', bot: false, online: false })),
+      lineup: this.lineup.map(id => pub(this.get(id) || { id, name: '?', online: false })),
     };
   }
 
@@ -191,26 +187,13 @@ class Room {
   start(conn) {
     if (conn.deviceId !== this.hostId) return this.send(this.humans.get(conn.deviceId), { t: 'error', msg: 'Only the host can start' });
     if (this.phase === 'game') return;
-    if (!this.useBots && this.eligibleHumans().length < C.MIN_PLAYERS) {
+    if (this.onlineHumans().length < C.MIN_PLAYERS) {
       return this.send(this.humans.get(conn.deviceId), { t: 'error', msg: 'Not enough players' });
     }
     this.phase = 'game';
     this.round = 0;
     this.buildLineup(true);
     this.startChain();
-  }
-
-  /** Host-only, before the game starts (lobby or results screen). */
-  setBots(conn, on) {
-    if (conn.deviceId !== this.hostId || this.phase === 'game') return;
-    this.useBots = !!on;
-    this.broadcastRoom();
-  }
-
-  /** Humans who can take a seat. With bots on, repeat no-shows are benched (a bot takes the seat);
-   *  with bots off nobody can replace them, so they stay in. */
-  eligibleHumans() {
-    return this.onlineHumans().filter(h => !this.useBots || h.strikes < C.MAX_STRIKES);
   }
 
   setLang(conn, lang) {
@@ -227,27 +210,13 @@ class Room {
     this.chain = [];
     this.results = null;
     this.lineup = [];
-    this.bots.clear();
     for (const [id, h] of this.humans) if (!h.online) this.humans.delete(id);
     this.broadcastRoom();
   }
 
-  /** Eligible humans + (if bots are on) bots up to MIN_PLAYERS. */
+  /** Online players, shuffled or keeping the previous order (newcomers appended). */
   buildLineup(doShuffle) {
-    const humans = this.eligibleHumans().map(h => h.id);
-    const keepBots = [...this.bots.keys()];
-    const need = this.useBots ? Math.max(0, C.MIN_PLAYERS - humans.length) : 0;
-    while (keepBots.length > need) this.bots.delete(keepBots.pop());
-    const usedNames = new Set([...this.bots.values()].map(b => b.name));
-    let seq = 0;
-    while (keepBots.length < need) {
-      let b;
-      do { b = makeBot(seq++); } while (usedNames.has(b.name) && seq < 100);
-      usedNames.add(b.name);
-      this.bots.set(b.id, b);
-      keepBots.push(b.id);
-    }
-    const ids = humans.concat(keepBots);
+    const ids = this.onlineHumans().map(h => h.id);
     this.lineup = doShuffle ? shuffle(ids) : this.lineup.filter(id => ids.includes(id)).concat(ids.filter(id => !this.lineup.includes(id)));
   }
 
@@ -273,7 +242,6 @@ class Room {
     const pid = this.currentId();
     const p = this.get(pid);
     if (!p) return this.advance();
-    if (p.bot) return this.botTurn(p);
     if (!p.online) return this.noResponse(pid);
     if (this.index === 0) {
       this.setTurn('read', C.READ_MS);
@@ -293,7 +261,7 @@ class Room {
     this.broadcastTurn();
   }
 
-  /** Send the previous player's recording (or bot TTS text) to the current listener only. */
+  /** Send the previous player's recording (or its transcript as TTS if the upload is missing) to the current listener only. */
   sendListenMedia(h) {
     const prev = this.chain[this.index - 1];
     if (!prev) return;
@@ -330,9 +298,8 @@ class Room {
     // "Spoke" = speech-to-text heard words, or (browsers without STT) the voice-activity detector fired.
     const spoke = transcript.length > 0 || (voiced && this.pendingAudio !== null);
     if (!spoke) return this.noResponse(h.id);
-    h.strikes = 0;
     this.chain.push({
-      playerId: h.id, name: h.name, bot: false,
+      playerId: h.id, name: h.name,
       heard: this.heardText(), said: transcript, audio: this.pendingAudio,
     });
     this.pendingAudio = null;
@@ -343,22 +310,6 @@ class Room {
   heardText() {
     for (let i = this.chain.length - 1; i >= 0; i--) if (this.chain[i].said) return this.chain[i].said;
     return this.sentence;
-  }
-
-  botTurn(bot) {
-    const words = this.heardText().split(' ').length;
-    const ms = C.BOT_BASE_MS + words * C.BOT_PER_WORD_MS * 2; // "listen" + "speak"
-    const ep = ++this.epoch;
-    clearTimeout(this.timer);
-    this.turnPhase = 'bot';
-    this.turnEndsAt = Date.now() + ms;
-    this.broadcastTurn();
-    this.timer = setTimeout(() => {
-      if (ep !== this.epoch) return;
-      const heard = this.heardText();
-      this.chain.push({ playerId: bot.id, name: bot.name, bot: true, heard, said: mutate(heard, bot.skill, this.lang), audio: null });
-      this.advance();
-    }, ms);
   }
 
   advance() {
@@ -372,7 +323,6 @@ class Room {
     clearTimeout(this.timer);
     const p = this.get(pid);
     const name = p ? p.name : 'A player';
-    if (p && !p.bot) p.strikes++;
     const first = this.index === 0;
     this.turnPhase = 'paused';
     this.turnEndsAt = Date.now() + C.NOTICE_MS;
@@ -388,8 +338,8 @@ class Room {
     this.timer = setTimeout(() => {
       if (ep !== this.epoch) return;
       if (this.onlineHumans().length === 0) return this.destroy();
-      // Bots off and players dropped below the minimum: the line can't continue -> back to the lobby.
-      if (!this.useBots && this.eligibleHumans().length < C.MIN_PLAYERS) {
+      // Players dropped below the minimum: the line can't continue -> back to the lobby.
+      if (this.onlineHumans().length < C.MIN_PLAYERS) {
         this.phase = 'lobby';
         this.lineup = [];
         this.chain = [];
@@ -397,7 +347,7 @@ class Room {
         return this.broadcastRoom();
       }
       // First player silent -> same lineup, new sentence. Anyone else -> shuffled lineup.
-      // Offline humans (and, with bots on, repeat offenders) are swapped out.
+      // Offline players are dropped from the lineup.
       this.buildLineup(!first);
       this.startChain();
     }, C.NOTICE_MS);
@@ -409,21 +359,16 @@ class Room {
     this.phase = 'results';
     this.turnPhase = 'loading';
     const entries = this.chain.map((e, i) => ({
-      index: i, playerId: e.playerId, name: e.name, bot: e.bot,
+      index: i, playerId: e.playerId, name: e.name,
       heard: e.heard, said: e.said || '', score: similarity(e.heard, e.said), hasAudio: !!e.audio, // empty said -> client shows localized "(no transcript)"
     }));
     const finalSaid = this.heardText();
     const ranked = entries.slice().sort((a, b) => b.score - a.score);
-    let rank = 0;
-    const ranking = ranked.map(e => ({
-      playerId: e.playerId, name: e.name, bot: e.bot, score: e.score,
-      rank: e.bot ? 0 : ++rank, // bots are scored but not ranked
-    }));
+    const ranking = ranked.map((e, i) => ({ playerId: e.playerId, name: e.name, score: e.score, rank: i + 1 }));
     this.results = {
       t: 'results', original: this.sentence, final: finalSaid,
       overall: similarity(this.sentence, finalSaid), entries, ranking,
     };
-    for (const h of this.humans.values()) h.strikes = 0;
     this.broadcastRoom();
     this.broadcast(this.results);
   }
