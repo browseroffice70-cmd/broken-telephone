@@ -8,7 +8,8 @@ var BrokenTelephonePlugin = {
   $BT: {
     go: null,
     ws: null,
-    stream: null,
+    stream: null,        // live mic stream: open only while this player is recording
+    micSrc: null,
     audioCtx: null,
     analyser: null,
     vadBuf: null,
@@ -109,6 +110,89 @@ var BrokenTelephonePlugin = {
       for (var i = 0; i < opts.length; i++) if (MediaRecorder.isTypeSupported(opts[i])) return opts[i];
       return '';
     },
+    // The mic is opened per turn and released right after, so the browser's "mic in use"
+    // indicator is only on while the player is actually speaking.
+    openMic: function (onOk, onFail) {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { onFail('unsupported'); return; }
+      navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } })
+        .then(onOk, function () { onFail('denied'); });
+    },
+    stopTracks: function (stream) {
+      var tracks = stream ? stream.getTracks() : [];
+      for (var i = 0; i < tracks.length; i++) { try { tracks[i].stop(); } catch (e) {} }
+    },
+    attachMic: function (stream) {
+      BT.stream = stream;
+      try {
+        if (!BT.audioCtx) {
+          var Ctx = window.AudioContext || window.webkitAudioContext;
+          BT.audioCtx = new Ctx();
+          BT.analyser = BT.audioCtx.createAnalyser();
+          BT.analyser.fftSize = 1024;
+          BT.vadBuf = new Float32Array(BT.analyser.fftSize); // allocated once, reused by the VAD
+        }
+        BT.micSrc = BT.audioCtx.createMediaStreamSource(stream);
+        BT.micSrc.connect(BT.analyser);
+      } catch (e) {}
+    },
+    releaseMic: function () {
+      try { if (BT.micSrc) BT.micSrc.disconnect(); } catch (e) {}
+      BT.micSrc = null;
+      BT.stopTracks(BT.stream);
+      BT.stream = null;
+    },
+    // Starts recorder + speech-to-text + voice detection on the freshly opened mic.
+    beginCapture: function (r, sttLang) {
+      try { if (BT.audioCtx && BT.audioCtx.state === 'suspended') BT.audioCtx.resume(); } catch (e) {}
+      // 1) Compressed recording (low bitrate Opus: ~12 KB for 10 s of speech).
+      try {
+        var opts = { audioBitsPerSecond: 24000 };
+        if (r.mime) opts.mimeType = r.mime;
+        r.recorder = new MediaRecorder(BT.stream, opts);
+        r.mime = r.recorder.mimeType || r.mime || 'audio/webm';
+        r.recorder.ondataavailable = function (e) { if (e.data && e.data.size) r.chunks.push(e.data); };
+        r.recorder.start();
+      } catch (e) { r.recorder = null; }
+
+      // 2) Speech-to-text (Chrome/Edge/Safari). Restarts itself if the engine stops early.
+      var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SR) {
+        try {
+          var rc = new SR();
+          rc.lang = sttLang; // room language: en-IN / hi-IN / kn-IN / ml-IN
+          rc.continuous = true;
+          rc.interimResults = true;
+          rc.maxAlternatives = 1;
+          rc.onresult = function (ev) {
+            var fin = '', interim = '';
+            for (var i = 0; i < ev.results.length; i++) {
+              if (ev.results[i].isFinal) fin += ev.results[i][0].transcript + ' ';
+              else interim += ev.results[i][0].transcript + ' ';
+            }
+            if (fin) r.finalText = (r.baseText || '') + fin;
+            r.interimText = (r.finalText || r.baseText || '') + interim;
+          };
+          rc.onend = function () {
+            if (!r.finishing) { r.baseText = r.finalText; try { rc.start(); } catch (e) {} }
+            else if (r.onSttEnd) r.onSttEnd();
+          };
+          rc.onerror = function () {};
+          rc.start();
+          r.recognition = rc;
+        } catch (e) { r.recognition = null; }
+      }
+
+      // 3) Voice-activity detection: >= 300 ms above an RMS threshold counts as "spoke".
+      //    Covers browsers without STT and catches STT engines that return nothing.
+      if (BT.analyser) {
+        r.vadTimer = setInterval(function () {
+          BT.analyser.getFloatTimeDomainData(BT.vadBuf);
+          var sum = 0, b = BT.vadBuf;
+          for (var i = 0; i < b.length; i++) sum += b[i] * b[i];
+          if (Math.sqrt(sum / b.length) > 0.02) { r.voicedMs += 50; if (r.voicedMs >= 300) r.voiced = true; }
+        }, 50);
+      }
+    },
     finishRecording: function () {
       var r = BT.rec;
       if (!r || r.finishing) return;
@@ -128,6 +212,7 @@ var BrokenTelephonePlugin = {
         setTimeout(res, 1200);
       });
       Promise.all([recorderDone, sttDone]).then(function () {
+        BT.releaseMic(); // turn is over: turn the mic off before the upload
         var transcript = (r.finalText || r.interimText || '').replace(/\s+/g, ' ').trim();
         var mime = r.mime || 'audio/webm';
         var blob = new Blob(r.chunks, { type: mime });
@@ -217,84 +302,34 @@ var BrokenTelephonePlugin = {
     return (window.SpeechRecognition || window.webkitSpeechRecognition) ? 1 : 0;
   },
 
+  // Asks for mic permission up front (on create/join) so the prompt doesn't eat into the
+  // recording window, then releases the mic straight away.
   BT_RequestMic: function () {
-    if (BT.stream) { BT.call('OnMicResult', 'ok'); return; }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { BT.call('OnMicResult', 'unsupported'); return; }
-    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } })
-      .then(function (stream) {
-        BT.stream = stream;
-        try {
-          var Ctx = window.AudioContext || window.webkitAudioContext;
-          BT.audioCtx = new Ctx();
-          var src = BT.audioCtx.createMediaStreamSource(stream);
-          BT.analyser = BT.audioCtx.createAnalyser();
-          BT.analyser.fftSize = 1024;
-          BT.vadBuf = new Float32Array(BT.analyser.fftSize); // allocated once, reused by the VAD
-          src.connect(BT.analyser);
-        } catch (e) {}
-        BT.call('OnMicResult', 'ok');
-      })
-      .catch(function () { BT.call('OnMicResult', 'denied'); });
+    BT.openMic(function (stream) {
+      BT.stopTracks(stream);
+      BT.call('OnMicResult', 'ok');
+    }, function (err) { BT.call('OnMicResult', err); });
   },
 
   BT_StartRecording: function (ms, langPtr) {
     var sttLang = UTF8ToString(langPtr) || 'en-IN';
     if (BT.rec) return;
-    if (!BT.stream) { BT.call('OnRecordingFinished', JSON.stringify({ transcript: '', voiced: false })); BT.sendJson({ t: 'turnDone', transcript: '', voiced: false }); return; }
-    try { if (BT.audioCtx && BT.audioCtx.state === 'suspended') BT.audioCtx.resume(); } catch (e) {}
     var r = { chunks: [], finalText: '', interimText: '', voiced: false, voicedMs: 0, finishing: false, mime: BT.pickMime() };
     BT.rec = r;
-
-    // 1) Compressed recording (low bitrate Opus: ~12 KB for 10 s of speech).
-    try {
-      var opts = { audioBitsPerSecond: 24000 };
-      if (r.mime) opts.mimeType = r.mime;
-      r.recorder = new MediaRecorder(BT.stream, opts);
-      r.mime = r.recorder.mimeType || r.mime || 'audio/webm';
-      r.recorder.ondataavailable = function (e) { if (e.data && e.data.size) r.chunks.push(e.data); };
-      r.recorder.start();
-    } catch (e) { r.recorder = null; }
-
-    // 2) Speech-to-text (Chrome/Edge/Safari). Restarts itself if the engine stops early.
-    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SR) {
-      try {
-        var rc = new SR();
-        rc.lang = sttLang; // room language: en-IN / hi-IN / kn-IN / ml-IN
-        rc.continuous = true;
-        rc.interimResults = true;
-        rc.maxAlternatives = 1;
-        rc.onresult = function (ev) {
-          var fin = '', interim = '';
-          for (var i = 0; i < ev.results.length; i++) {
-            if (ev.results[i].isFinal) fin += ev.results[i][0].transcript + ' ';
-            else interim += ev.results[i][0].transcript + ' ';
-          }
-          if (fin) r.finalText = (r.baseText || '') + fin;
-          r.interimText = (r.finalText || r.baseText || '') + interim;
-        };
-        rc.onend = function () {
-          if (!r.finishing) { r.baseText = r.finalText; try { rc.start(); } catch (e) {} }
-          else if (r.onSttEnd) r.onSttEnd();
-        };
-        rc.onerror = function () {};
-        rc.start();
-        r.recognition = rc;
-      } catch (e) { r.recognition = null; }
-    }
-
-    // 3) Voice-activity detection: >= 300 ms above an RMS threshold counts as "spoke".
-    //    Covers browsers without STT and catches STT engines that return nothing.
-    if (BT.analyser) {
-      r.vadTimer = setInterval(function () {
-        BT.analyser.getFloatTimeDomainData(BT.vadBuf);
-        var sum = 0, b = BT.vadBuf;
-        for (var i = 0; i < b.length; i++) sum += b[i] * b[i];
-        if (Math.sqrt(sum / b.length) > 0.02) { r.voicedMs += 50; if (r.voicedMs >= 300) r.voiced = true; }
-      }, 50);
-    }
-
+    // The window counts from now, including the few hundred ms it takes to open the mic.
     r.timer = setTimeout(BT.finishRecording, ms);
+    BT.openMic(function (stream) {
+      // Turn already ended (player pressed "I'm done" or time ran out) while the mic was opening.
+      if (BT.rec !== r || r.finishing) { BT.stopTracks(stream); return; }
+      BT.attachMic(stream);
+      BT.beginCapture(r, sttLang);
+    }, function () {
+      if (BT.rec !== r || r.finishing) return;
+      clearTimeout(r.timer);
+      BT.rec = null;
+      BT.sendJson({ t: 'turnDone', transcript: '', voiced: false });
+      BT.call('OnRecordingFinished', JSON.stringify({ transcript: '', voiced: false }));
+    });
   },
 
   BT_StopRecording: function () {
