@@ -423,7 +423,8 @@ namespace BrokenTelephone
         {
             if (room == null || room.phase != "game") return;
             game.Lineup.Set(room.lineup, turn != null ? turn.index : -1, deviceId, room.hostId);
-            if (turn == null) { SetCard(Loc.T("get_ready"), "", "", false, ""); return; }
+            if (turn == null) { SetCard(Loc.T("get_ready"), "", "", false, ""); game.Stage.Set(StageMode.Hidden, null, null, false); return; }
+            UpdateStage();
 
             game.Header.Text = Loc.F("header", turn.round, turn.index + 1, turn.total);
             bool spectator = LineupIndexOf(deviceId) < 0;
@@ -462,6 +463,38 @@ namespace BrokenTelephone
                 case "paused":
                     SetCard(Loc.T("hold_on"), "", "", false, "");
                     break;
+            }
+        }
+
+        PlayerInfo LineupAt(int i) => room?.lineup != null && i >= 0 && i < room.lineup.Length ? room.lineup[i] : null;
+
+        /// <summary>Picks the cartoon for the current turn: who whispers to whom, who's reading, etc.</summary>
+        void UpdateStage()
+        {
+            var st = game.Stage;
+            var who = LineupAt(LineupIndexOf(turn.playerId)) ?? LineupAt(turn.index);
+            var prev = LineupAt(turn.index - 1);
+            var next = LineupAt(turn.index + 1);
+            switch (turn.phase)
+            {
+                case "loading":
+                    st.Set(StageMode.Reading, null, null, false); break; // grabbing today's paper
+                case "read":
+                    // My own read: the sentence needs the room, so the stage steps aside.
+                    st.Set(MyTurn ? StageMode.Hidden : StageMode.Reading, who, null, false); break;
+                case "listen":
+                    if (MyTurn && played) st.Set(StageMode.Thinking, who, null, false);
+                    else if (prev == null) st.Set(StageMode.Reading, who, null, false);
+                    else st.Set(StageMode.Whisper, prev, who, !MyTurn || playing);
+                    break;
+                case "record":
+                    if (MyTurn && sent) st.Set(StageMode.Celebrate, who, null, false);
+                    else st.Set(StageMode.Whisper, who, next, true);
+                    break;
+                case "paused":
+                    st.Set(StageMode.Confused, who, next, false); break;
+                default:
+                    st.Set(StageMode.Hidden, null, null, false); break;
             }
         }
 
@@ -562,6 +595,7 @@ namespace BrokenTelephone
             results = null;
             noticeKey = null;
             game.Timer.Hide();
+            game.Stage.Set(StageMode.Hidden, null, null, false);
             game.ShowNotice(null);
             SetStatus(null);
             ShowScreen();

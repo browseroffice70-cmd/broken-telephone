@@ -32,6 +32,28 @@ namespace BrokenTelephone
         public static Font Font => font ? font : (font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"));
         public static Sprite Rounded => rounded ? rounded : (rounded = MakeRounded(48, 18));
 
+        static Sprite circle, ring;
+        /// <summary>Anti-aliased filled disc (64px). Scales to any ellipse.</summary>
+        public static Sprite Circle => circle ? circle : (circle = MakeRadial(64, d => Mathf.Clamp01(31.5f - d + 0.5f), "CircleUI"));
+        /// <summary>Anti-aliased ring (64px, ~7px thick). Use Image.Type.Filled to draw arcs.</summary>
+        public static Sprite Ring => ring ? ring : (ring = MakeRadial(64, d => Mathf.Clamp01(31.5f - d + 0.5f) * Mathf.Clamp01(d - 24f + 0.5f), "RingUI"));
+
+        static Sprite MakeRadial(int size, System.Func<float, float> alphaAt, string name)
+        {
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear, name = name };
+            var px = new Color32[size * size];
+            float c = size * 0.5f;
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float d = Mathf.Sqrt((x + 0.5f - c) * (x + 0.5f - c) + (y + 0.5f - c) * (y + 0.5f - c));
+                px[y * size + x] = new Color32(255, 255, 255, (byte)(alphaAt(d) * 255f));
+            }
+            tex.SetPixels32(px);
+            tex.Apply(false, true);
+            return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+        }
+
         static Sprite MakeRounded(int size, int radius)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear, name = "RoundedUI" };

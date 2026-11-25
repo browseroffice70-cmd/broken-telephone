@@ -281,7 +281,7 @@ namespace BrokenTelephone
             UIKit.Layout(UIKit.LabelKey(col, "Or", "or_join", 26, Palette.Muted), 54);
             var row = UIKit.Rect(col, "JoinRow");
             UIKit.HStack(row, 16);
-            UIKit.Layout(row, 104);
+            UIKit.Layout(row, 104, -1, 0);
             Code = UIKit.Input(row, "Code", "code_ph", 48, 4);
             Code.onValidateInput = (text, i, ch) => char.IsLetter(ch) && ch < 128 ? char.ToUpperInvariant(ch) : '\0';
             UIKit.Layout(Code, -1, 0, -1, 1);
@@ -336,6 +336,7 @@ namespace BrokenTelephone
         public readonly LineupView Lineup;
         public readonly Image Card, NoticeBg;
         public readonly TimerView Timer;
+        public readonly WhisperStage Stage;
         public readonly Button Primary, Leave;
 
         public GameView(Transform root, Action onPrimary, Action onLeave)
@@ -358,8 +359,9 @@ namespace BrokenTelephone
             UIKit.VStack(Card, 18, 34);
             Title = UIKit.Label(Card.transform, "Title", "", 34, Palette.Accent, TextAnchor.MiddleCenter, FontStyle.Bold);
             UIKit.Layout(Title, -1, -1, -1, -1, 60);
+            Stage = WhisperStage.Create(Card.transform, Screen); // collapses to 0 height when hidden
             Body = UIKit.Label(Card.transform, "Body", "", 46, Palette.Text, TextAnchor.MiddleCenter, FontStyle.Bold);
-            UIKit.Layout(Body, -1, -1, 1, -1, 160);
+            UIKit.Layout(Body, -1, -1, 1, -1, 100);
             Timer = TimerView.Create(Card.transform);
             Primary = UIKit.Button(Card.transform, "Primary", "", Palette.Accent, Palette.OnAccent, 38, () => onPrimary(), out PrimaryLabel);
             UIKit.Layout(Primary, 116);
@@ -445,12 +447,14 @@ namespace BrokenTelephone
             UIKit.VStack(rankingRoot, 8);
 
             var buttons = UIKit.Rect(col, "Buttons");
-            UIKit.HStack(buttons, 16);
-            UIKit.Layout(buttons, 100);
-            Lobby = UIKit.ButtonKey(buttons, "Lobby", "play_again", Palette.Accent, Palette.OnAccent, 34, () => onLobby(), out _);
-            UIKit.Layout(Lobby, -1, 0, -1, 2);
-            Leave = UIKit.ButtonKey(buttons, "Leave", "leave", Palette.Panel, Palette.Muted, 28, () => onLeave(), out _);
-            UIKit.Layout(Leave, -1, 0, -1, 1);
+            // Compact, centred action row with fixed widths: it doesn't stretch across the column,
+            // and Leave stays the same size when non-hosts only see Leave.
+            UIKit.HStack(buttons, 16, 0, TextAnchor.MiddleCenter);
+            UIKit.Layout(buttons, 78, -1, 0); // flex 0: an HStack reports flexibleHeight 1 by default and would eat half the spare height
+            Lobby = UIKit.ButtonKey(buttons, "Lobby", "play_again", Palette.Accent, Palette.OnAccent, 30, () => onLobby(), out _);
+            UIKit.Layout(Lobby, -1, 360);
+            Leave = UIKit.ButtonKey(buttons, "Leave", "leave", Palette.Panel2, Palette.Muted, 26, () => onLeave(), out _);
+            UIKit.Layout(Leave, -1, 240);
         }
 
         static UText HighlightCard(Transform parent, string labelKey, Color bg, Color fg)
